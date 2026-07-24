@@ -1,7 +1,6 @@
 package com.infobip.openapi.mcp.openapi.tool;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.infobip.openapi.mcp.config.OpenApiMcpProperties;
 import com.infobip.openapi.mcp.openapi.OpenApiRegistry;
@@ -16,6 +15,9 @@ import java.util.List;
 import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import tools.jackson.core.JacksonException;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * Registry for converting OpenAPI operations into MCP (Model Context Protocol) tool specifications.
@@ -41,6 +43,7 @@ import org.slf4j.LoggerFactory;
 public class ToolRegistry {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(ToolRegistry.class);
+    private static final TypeReference<Map<String, Object>> JSON_SCHEMA_MAP_TYPE = new TypeReference<>() {};
 
     private final OpenApiRegistry openApiRegistry;
     private final NamingStrategy namingStrategy;
@@ -49,8 +52,7 @@ public class ToolRegistry {
     private final ToolHandler toolHandler;
     private final OpenApiMapperFactory openApiMapperFactory;
     private final ToolAnnotationResolver toolAnnotationResolver;
-    private final ObjectMapper jsonSchemaMapper = new ObjectMapper();
-    private final ObjectMapper prettyPrintMapper = new ObjectMapper().enable(SerializationFeature.INDENT_OUTPUT);
+    private final JsonMapper jsonSchemaMapper = JsonMapper.builder().build();
     private final OpenApiMcpProperties properties;
 
     private List<RegisteredTool> registeredToolsCache = List.of();
@@ -157,13 +159,13 @@ public class ToolRegistry {
      * The schema is generated based on the OpenAPI specification version.
      *
      * @param fullOperation the OpenAPI operation to create a schema for
-     * @return a JSON string representing the input schema, or "{}" if resolution fails
+     * @return a map representing the input JSON schema, or an empty object schema if resolution fails
      */
-    private McpSchema.JsonSchema resolveJsonSchema(FullOperation fullOperation) {
+    private Map<String, Object> resolveJsonSchema(FullOperation fullOperation) {
         var composedSchema = inputSchemaComposer.compose(fullOperation);
         if (composedSchema == null) {
             // Due to the way how the underlying framework works, we need to explicitly provide an empty object schema
-            return new McpSchema.JsonSchema("object", Map.of(), null, null, null, null);
+            return Map.of("type", "object", "properties", Map.of());
         }
 
         try {
@@ -173,8 +175,13 @@ public class ToolRegistry {
                     "Resolved JSON schema for operation {}: {}",
                     fullOperation.operation().getOperationId(),
                     stringSchemaRepresentation);
-            return jsonSchemaMapper.readValue(stringSchemaRepresentation, McpSchema.JsonSchema.class);
-        } catch (JsonProcessingException exception) {
+            // Deserialized into a Map rather than McpSchema.JsonSchema: that record narrows fields like
+            // `type` to String and `additionalProperties` to Boolean, which cannot represent valid
+            // OpenAPI 3.1 / JSON Schema constructs such as `"type": ["object", "null"]` or a schema-valued
+            // `additionalProperties`.
+            return jsonSchemaMapper.readValue(stringSchemaRepresentation, JSON_SCHEMA_MAP_TYPE);
+            // TODO: catch only JacksonException once swagger-core migrates to Jackson 3
+        } catch (JacksonException | JsonProcessingException exception) {
             LOGGER.error(
                     "Failed to resolve JSON schema for operation: {}",
                     fullOperation.operation().getOperationId(),
@@ -268,6 +275,9 @@ public class ToolRegistry {
             return null;
         }
 
+        var prettyPrintMapper =
+                openApiMapperFactory.mapper(fullOperation.openApi()).copy().enable(SerializationFeature.INDENT_OUTPUT);
+
         try {
             if (examples.size() == 1 && examples.getFirst().title() == null) {
                 var example = examples.getFirst();
@@ -292,7 +302,8 @@ public class ToolRegistry {
                 sb.append("\n\n```json\n").append(json).append("\n```");
             }
             return sb.toString();
-        } catch (JsonProcessingException exception) {
+            // TODO: catch only JacksonException once swagger-core migrates to Jackson 3
+        } catch (JacksonException | JsonProcessingException exception) {
             LOGGER.warn(
                     "Failed to serialize example for operation '{}': {},\n "
                             + "will leave the examples section of tool description blank",
