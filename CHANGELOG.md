@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## 1.0.1
+
 ### Added
 
 - OpenAPI 3.1 nullable parameters and properties (declared as a union type such as `["array", "null"]`) are now
