@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- MCP Resources support via the `x-mcp-resource: true` vendor extension on a `GET` OpenAPI operation. Marking an
+  operation this way exposes it as an MCP `Resource` (for parameter-less operations) or a `ResourceTemplate` (for
+  operations with path and/or query parameters), instead of registering it as a tool. The resource's `uri`/
+  `uriTemplate`, `name`, `title`, `description`, and `mimeType` are all derived automatically from the OpenAPI
+  operation; the `mimeType` is taken from the first successful (`2xx`) response declaring content, preferring `200`.
+  Responses with a textual media type (`text/*`, JSON, XML, YAML, JavaScript, or any media type declaring a
+  `charset`) are returned as text resource contents, while any other media type (images, PDFs, etc.) is returned as
+  base64 encoded blob contents. This conversion can be customized by registering a `ResourceContentsConverter` bean,
+  for example to treat vendor specific media types as text. The URI scheme used to build resource URIs defaults to `api` and can be customized with the
+  `infobip.openapi.mcp.resources.uri-scheme` property. Resources are included in live reload — when the OpenAPI
+  specification changes, resource additions, removals and definition changes are applied and connected MCP clients
+  are notified. Parameters declared on the OpenAPI Path Item are inherited by the operation when building resource
+  URIs, with operation level parameters overriding inherited ones of the same name. When a resource is read, only
+  query parameters declared on the operation are forwarded to the downstream API — undeclared ones are dropped and
+  logged, so clients cannot inject arbitrary query parameters into the backend call. Query parameter values are
+  decoded as URI components (a literal `+` is preserved, not turned into a space) and safely re-encoded when
+  forwarded. Resource reads can be
+  intercepted by implementing `ResourceCallFilter`. Resource reads are observable via Micrometer metrics:
+  `com.infobip.openapi.resource.call` (counter), `com.infobip.openapi.resource.call.duration` (timer),
+  `com.infobip.openapi.resource.read.call` (counter), and `com.infobip.openapi.resource.read.call.duration` (timer).
+
 ## 1.0.1
 
 ### Added
